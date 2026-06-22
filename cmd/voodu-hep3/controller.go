@@ -86,6 +86,8 @@ func (c *controllerClient) listPods(kind, scope, name string) ([]podInfo, error)
 	u := fmt.Sprintf("%s/pods?kind=%s&scope=%s&name=%s",
 		c.baseURL, url.QueryEscape(kind), url.QueryEscape(scope), url.QueryEscape(name))
 
+	// #nosec G704 -- baseURL is the trusted controller admin URL injected by
+	// the controller via the invocation context; the path is a fixed route.
 	resp, err := c.http.Get(u)
 	if err != nil {
 		return nil, err
@@ -132,11 +134,14 @@ func (c *controllerClient) post(path string) error {
 		return fmt.Errorf("no controller_url available")
 	}
 
+	// #nosec G704 -- baseURL is the trusted controller admin URL injected by
+	// the controller via the invocation context; path is a fixed route.
 	req, err := http.NewRequest(http.MethodPost, c.baseURL+path, nil)
 	if err != nil {
 		return err
 	}
 
+	// #nosec G704 -- request target is the trusted controller admin URL.
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -30,7 +31,7 @@ The API is versioned by media type, e.g.
 func cmdServe() error {
 	args := os.Args[2:]
 	if hasHelpFlag(args) {
-		os.Stdout.WriteString(serveHelp)
+		fmt.Print(serveHelp)
 
 		return nil
 	}
