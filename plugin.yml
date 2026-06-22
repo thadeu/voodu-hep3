@@ -1,0 +1,43 @@
+name: hep3
+aliases: [hep]
+version: 0.1.0
+description: >
+  Voodu plugin for the SIP-capture READER. The kind `hep3 "scope" "name"`
+  expands to a deployment running the read-only REST API (call lists,
+  ladder diagrams, stats) over the Postgres that clowk-hep3 writes to —
+  built from a LOCAL image (the plugin binary + a runtime Dockerfile), no
+  public registry. The collector itself is a plain `deployment` running
+  the public ghcr.io/thadeu/clowk-hep3 image (see clowk-hep3's
+  hep3-server.voodu). `vd hep:<cmd>` works alongside `vd hep3:<cmd>`.
+homepage: https://github.com/thadeu/voodu-hep3
+
+entrypoint: bin/voodu-hep3
+
+# Expose the reader API through the controller's authenticated PAT plane:
+# GET /api/pat/v1/hep3/<scope>/<name>/... is reverse-proxied to the
+# reader pod's container on voodu0, on the port carried in HEP3_API_ADDR.
+# The port is never published to the host.
+routes:
+  prefix: hep3
+  port_env: HEP3_API_ADDR
+
+commands:
+  - name: help
+    help: Plugin overview — manifest, deploy flow, REST surface.
+
+  - name: expand
+    help: >
+      (Internal.) Macro entrypoint invoked by the controller during
+      apply. Emits the reader API deployment (local image) + an
+      HEP3_ENDPOINT config_set for consumers.
+
+  - name: api
+    help: >
+      Manage the reader API pod: vd hep3:api start|stop|restart <scope/name>.
+      start/restart build the local image; restart picks up a new binary.
+
+  - name: serve
+    help: >
+      (Internal.) Run the read-only REST API server. This is the
+      ENTRYPOINT of the locally-built reader image — operators don't run
+      it directly.

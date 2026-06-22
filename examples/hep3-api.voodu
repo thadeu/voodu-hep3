@@ -1,0 +1,25 @@
+# hep3-api.voodu — the SIP capture READER (voodu-hep3 plugin).
+#
+# The `hep3` kind expands to a deployment running the read-only REST API
+# over the SAME Postgres the collector writes to. The webui reaches it
+# through the controller's authenticated PAT proxy at
+# /api/pat/v1/hep3/<scope>/<name>. The image is built LOCALLY (the plugin
+# binary + a runtime Dockerfile, by the install hook) — no public image.
+#
+#   vd plugins:install hep3
+#   vd config voip/api set DATABASE_URL=postgres://user:pass@host/hep   # same DB as the collector
+#   vd apply -f hep3-api.voodu
+#
+# Lifecycle (start/restart also rebuild the local image on a new binary):
+#   vd hep3:api start|stop|restart voip/api
+
+hep3 "fsw" "hep3-api" {
+  # api_port = 8080   # optional; default 8080 (internal, voodu0 only)
+
+  resources {
+    limits {
+      cpu    = "0.5"
+      memory = "128Mi"
+    }
+  }
+}

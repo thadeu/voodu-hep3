@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# install — lifecycle hook run by `voodu plugins:install hep3`.
+#
+# Two steps:
+#   1. Download the voodu-hep3 plugin binary into
+#      $VOODU_PLUGIN_DIR/bin/voodu-hep3 (the CLI + the reader's `serve`).
+#   2. Build the LOCAL reader image (binary + Dockerfile.runtime) tagged
+#      voodu-hep3-api:<version>. `expand` references this local tag, so
+#      the controller runs it WITHOUT a registry pull. No public image.
+#
+# The collector (clowk-hep3) is NOT installed here — it's a plain
+# deployment running the public ghcr.io/thadeu/clowk-hep3 image.
+#
+# Idempotent: safe to run repeatedly.
+
+set -euo pipefail
+
+PLUGIN_DIR="${VOODU_PLUGIN_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+PLUGIN_BIN="$PLUGIN_DIR/bin/voodu-hep3"
+RELEASE_REPO="${VOODU_HEP3_RELEASE_REPO:-thadeu/voodu-hep3}"
+IMAGE_REPO="voodu-hep3-api"
+
+log() { printf '[voodu-hep3/install] %s\n' "$*"; }
+
+plugin_version() {
+  grep '^version:' "$PLUGIN_DIR/plugin.yml" | awk '{print $2}'
+}
+
+arch() {
+  case "$(uname -m)" in
+    x86_64|amd64) echo "amd64" ;;
+    aarch64|arm64) echo "arm64" ;;
+    *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+  esac
+}
+
+install_voodu_hep3() {
+  local version
+  version="$(plugin_version)"
+
+  if [ -z "$version" ]; then
+    log "could not read version from $PLUGIN_DIR/plugin.yml" >&2
+    exit 1
+  fi
+
+  if [ -x "$PLUGIN_BIN" ] && "$PLUGIN_BIN" --version 2>/dev/null | grep -q "$version"; then
+    log "voodu-hep3 v$version already installed at $PLUGIN_BIN"
+    return
+  fi
+
+  local a
+  a="$(arch)"
+
+  local url="https://github.com/${RELEASE_REPO}/releases/download/v${version}/voodu-hep3_linux_${a}"
+
+  log "downloading voodu-hep3 v$version ($a) from $url"
+
+  mkdir -p "$(dirname "$PLUGIN_BIN")"
+
+  local tmp
+  tmp="$(mktemp)"
+
+  if ! curl -fsSL "$url" -o "$tmp"; then
+    rm -f "$tmp"
+    log "failed to download voodu-hep3 binary from $url" >&2
+    log "make sure release v$version was published with the linux_${a} asset" >&2
+    exit 1
+  fi
+
+  install -m 0755 "$tmp" "$PLUGIN_BIN"
+  rm -f "$tmp"
+
+  log "installed $PLUGIN_BIN"
+}
+
+build_reader_image() {
+  local version tag
+  version="$(plugin_version)"
+  tag="${IMAGE_REPO}:${version}"
+
+  if ! command -v docker >/dev/null 2>&1; then
+    log "docker not found — skipping reader image build" >&2
+    log "build it later with: vd hep3:api restart <scope/name>" >&2
+    return
+  fi
+
+  log "building local reader image $tag (binary + Dockerfile.runtime)"
+
+  if ! docker build -f "$PLUGIN_DIR/Dockerfile.runtime" -t "$tag" "$PLUGIN_DIR"; then
+    log "failed to build reader image $tag" >&2
+    exit 1
+  fi
+
+  log "built $tag (local — no registry; expand references this tag)"
+}
+
+main() {
+  if [ "$(id -u)" -ne 0 ]; then
+    log "this script must run as root (invoked by controller via plugins:install)"
+    exit 1
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    log "curl is required but not found on PATH" >&2
+    exit 1
+  fi
+
+  install_voodu_hep3
+  build_reader_image
+}
+
+main "$@"

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# uninstall — lifecycle hook run by `voodu plugins:remove hep3`.
+#
+# Drops the voodu-hep3 binary. Any hep3 statefulsets the operator
+# created remain — they're owned by voodu's statefulset kind, not this
+# plugin. To wipe a capture server:
+#
+#   vd delete hep3/<scope>/<name>
+#   vd delete statefulset/<scope>/<name> --prune   # also removes the data volume
+#
+# Idempotent: a missing binary is fine.
+
+set -euo pipefail
+
+PLUGIN_DIR="${VOODU_PLUGIN_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+PLUGIN_BIN="$PLUGIN_DIR/bin/voodu-hep3"
+
+log() { printf '[voodu-hep3/uninstall] %s\n' "$*"; }
+
+if [ "$(id -u)" -ne 0 ]; then
+  log "must run as root"
+  exit 1
+fi
+
+if [ -f "$PLUGIN_BIN" ]; then
+  rm -f "$PLUGIN_BIN"
+  log "removed $PLUGIN_BIN"
+fi
+
+log "any hep3 statefulsets the plugin spawned still live —"
+log "use \`vd delete hep3/<scope>/<name>\` and \`vd delete statefulset/<scope>/<name> --prune\` to wipe"

@@ -1,0 +1,14 @@
+# Runtime image for the hep3 reader API. Built LOCALLY by the install
+# hook (and `vd hep3:api restart`) from the already-installed plugin
+# binary — never pushed to a public registry. The build context is the
+# plugin's install dir, which holds bin/voodu-hep3.
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates
+
+COPY bin/voodu-hep3 /usr/local/bin/voodu-hep3
+
+# Internal REST API (voodu0 only; the controller PAT proxy reaches it).
+EXPOSE 8080
+
+ENTRYPOINT ["voodu-hep3", "serve"]
