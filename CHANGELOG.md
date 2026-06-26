@@ -7,6 +7,18 @@ be `v0.1.0` (the tag must match `version:` in `plugin.yml`).
 
 ## [Unreleased]
 
+### Changed
+
+- **Default read backend is now NDJSON** (`HEP_STORE=ndjson`). The reader
+  tails the collector's shared NDJSON volume and serves
+  `GET /export?since=<cursor>` (next cursor in the `X-Hep-Cursor` header),
+  which the webui poller pulls into its own SQLite — that's where the
+  calls/ladder/stats queries now run. The Postgres REST API becomes opt-in
+  (`HEP_STORE=pg`). `expand` mounts `<data_volume>:/data:ro` and sets
+  `HEP_STORE`/`HEP_DATA_DIR` on the ndjson path (DATABASE_URL via env_from
+  on the pg path). Reader and collector share a named volume → same host,
+  same uid; `Dockerfile.runtime` pins uid 10001 to match clowk-hep3.
+
 ### Added
 
 - `hep3` resource kind (alias `hep`): `expand` emits a `deployment`

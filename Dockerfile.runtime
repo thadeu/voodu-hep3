@@ -4,11 +4,18 @@
 # plugin's install dir, which holds bin/voodu-hep3.
 FROM alpine:3.20
 
-RUN apk add --no-cache ca-certificates
+# Pinned uid/gid 10001 to MATCH clowk-hep3: on the ndjson path the reader
+# mounts the collector's shared volume read-only and must be the same uid
+# to read its 0600 NDJSON files.
+RUN apk add --no-cache ca-certificates \
+ && addgroup -g 10001 -S hep \
+ && adduser -u 10001 -S -G hep hep
 
 COPY bin/voodu-hep3 /usr/local/bin/voodu-hep3
 
-# Internal REST API (voodu0 only; the controller PAT proxy reaches it).
+# Internal HTTP (voodu0 only; the controller PAT proxy reaches it):
+#   ndjson → GET /export?since=<cursor>   pg → REST query API
 EXPOSE 8080
+USER hep
 
 ENTRYPOINT ["voodu-hep3", "serve"]

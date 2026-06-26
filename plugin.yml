@@ -1,13 +1,14 @@
 name: hep3
 aliases: [hep]
-version: 0.1.1
+version: 0.2.0
 description: >
   Voodu plugin for the SIP-capture READER. The kind `hep3 "scope" "name"`
-  expands to a deployment running the read-only REST API (call lists,
-  ladder diagrams, stats) over the Postgres that clowk-hep3 writes to —
-  built from a LOCAL image (the plugin binary + a runtime Dockerfile), no
-  public registry. The collector itself is a plain `deployment` running
-  the public ghcr.io/thadeu/clowk-hep3 image (see clowk-hep3's
+  expands to a deployment that serves what clowk-hep3 captured: by default
+  it tails the shared NDJSON volume (GET /export?since=, pulled by the
+  webui into SQLite); with store="pg" it serves a versioned REST API over
+  Postgres. Built from a LOCAL image (the plugin binary + a runtime
+  Dockerfile), no public registry. The collector is a plain `deployment`
+  running the public ghcr.io/thadeu/clowk-hep3 image (see clowk-hep3's
   hep3-server.voodu). `vd hep:<cmd>` works alongside `vd hep3:<cmd>`.
 homepage: https://github.com/thadeu/voodu-hep3
 
@@ -23,21 +24,21 @@ routes:
 
 commands:
   - name: help
-    help: Plugin overview — manifest, deploy flow, REST surface.
+    help: Plugin overview — manifest, deploy flow, read surface.
 
   - name: expand
     help: >
       (Internal.) Macro entrypoint invoked by the controller during
-      apply. Emits the reader API deployment (local image) + an
-      HEP3_ENDPOINT config_set for consumers.
+      apply. Emits the reader deployment (local image; shared NDJSON
+      volume on the ndjson path) + an HEP3_ENDPOINT config_set.
 
   - name: api
     help: >
-      Manage the reader API pod: vd hep3:api start|stop|restart <scope/name>.
+      Manage the reader pod: vd hep3:api start|stop|restart <scope/name>.
       start/restart build the local image; restart picks up a new binary.
 
   - name: serve
     help: >
-      (Internal.) Run the read-only REST API server. This is the
-      ENTRYPOINT of the locally-built reader image — operators don't run
-      it directly.
+      (Internal.) Run the reader server (ndjson tail or pg REST API per
+      HEP_STORE). This is the ENTRYPOINT of the locally-built reader
+      image — operators don't run it directly.

@@ -1,20 +1,24 @@
 # hep3-api.voodu — the SIP capture READER (voodu-hep3 plugin).
 #
-# The `hep3` kind expands to a deployment running the read-only REST API
-# over the SAME Postgres the collector writes to. The webui reaches it
-# through the controller's authenticated PAT proxy at
-# /api/pat/v1/hep3/<scope>/<name>. The image is built LOCALLY (the plugin
-# binary + a runtime Dockerfile, by the install hook) — no public image.
+# The `hep3` kind expands to a deployment that serves the SIP data the
+# clowk-hep3 collector captured. The webui reaches it through the
+# controller's authenticated PAT proxy at /api/pat/v1/hep3/<scope>/<name>.
+# The image is built LOCALLY (the plugin binary + Dockerfile.runtime, by
+# the install hook) — no public image.
+#
+# Default backend is `ndjson`: the reader mounts the collector's shared
+# NDJSON volume read-only and serves GET /export?since=<cursor>, which the
+# webui poller pulls into its SQLite. Reader and collector must run on the
+# SAME host and share the SAME named volume (default "hep3-data").
 #
 #   vd plugins:install hep3
-#   vd config voip/api set DATABASE_URL=postgres://user:pass@host/hep   # same DB as the collector
 #   vd apply -f hep3-api.voodu
-#
-# Lifecycle (start/restart also rebuild the local image on a new binary):
-#   vd hep3:api start|stop|restart voip/api
+#   vd hep3:api start|stop|restart fsw/hep3-api   # start/restart rebuild the local image
 
 hep3 "fsw" "hep3-api" {
-  # api_port = 8080   # optional; default 8080 (internal, voodu0 only)
+  # store       = "ndjson"      # default; "pg" to read the Postgres backend instead
+  # data_volume = "hep3-data"   # must match the collector's named volume (ndjson store)
+  # api_port    = 8080          # internal, voodu0 only
 
   resources {
     limits {
@@ -23,3 +27,11 @@ hep3 "fsw" "hep3-api" {
     }
   }
 }
+
+# ── Postgres backend (opt-in) ─────────────────────────────────────────
+# To read from Postgres instead of NDJSON, set store = "pg" above and give
+# the reader the same DATABASE_URL the collector writes to:
+#
+#   vd config fsw/hep3-api set DATABASE_URL=postgres://user:pass@host:5432/hep
+#
+# The reader inherits it via env_from (no shared volume needed on this path).

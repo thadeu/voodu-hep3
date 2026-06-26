@@ -71,10 +71,59 @@ func TestExpand_Defaults(t *testing.T) {
 		t.Errorf("HEP3_API_ADDR = %v, want 0.0.0.0:8080", env["HEP3_API_ADDR"])
 	}
 
-	// DATABASE_URL comes from the resource's own config bucket via env_from.
+	// Default store is ndjson: HEP_STORE + HEP_DATA_DIR + a read-only mount
+	// of the collector's shared volume.
+	if env["HEP_STORE"] != "ndjson" {
+		t.Errorf("HEP_STORE = %v, want ndjson", env["HEP_STORE"])
+	}
+
+	if env["HEP_DATA_DIR"] != "/data" {
+		t.Errorf("HEP_DATA_DIR = %v, want /data", env["HEP_DATA_DIR"])
+	}
+
+	vols, ok := m.Spec["volumes"].([]any)
+	if !ok || len(vols) != 1 || vols[0] != "hep3-data:/data:ro" {
+		t.Errorf("volumes = %v, want [hep3-data:/data:ro]", m.Spec["volumes"])
+	}
+
 	ef, ok := m.Spec["env_from"].([]any)
 	if !ok || len(ef) != 1 || ef[0] != "voip/api" {
 		t.Errorf("env_from = %v, want [voip/api]", m.Spec["env_from"])
+	}
+}
+
+// store=pg: no shared volume, HEP_STORE=pg, DATABASE_URL via env_from.
+func TestExpand_PGStore(t *testing.T) {
+	m := dep(t, expandFromJSON(t, "voip", "api", `{"store":"pg"}`))
+
+	env := envMap(t, m)
+	if env["HEP_STORE"] != "pg" {
+		t.Errorf("HEP_STORE = %v, want pg", env["HEP_STORE"])
+	}
+
+	if _, has := env["HEP_DATA_DIR"]; has {
+		t.Errorf("pg store must not set HEP_DATA_DIR: %v", env["HEP_DATA_DIR"])
+	}
+
+	if _, has := m.Spec["volumes"]; has {
+		t.Errorf("pg store must not mount a volume: %v", m.Spec["volumes"])
+	}
+}
+
+// data_volume override flows into the mount.
+func TestExpand_DataVolumeOverride(t *testing.T) {
+	m := dep(t, expandFromJSON(t, "voip", "api", `{"data_volume":"capture-vol"}`))
+
+	vols, ok := m.Spec["volumes"].([]any)
+	if !ok || len(vols) != 1 || vols[0] != "capture-vol:/data:ro" {
+		t.Errorf("volumes = %v, want [capture-vol:/data:ro]", m.Spec["volumes"])
+	}
+}
+
+// An unknown store is rejected at parse time.
+func TestExpand_InvalidStore(t *testing.T) {
+	if _, err := parseSpec([]byte(`{"store":"redis"}`)); err == nil {
+		t.Fatal("store=redis should error")
 	}
 }
 

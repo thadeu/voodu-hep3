@@ -25,15 +25,21 @@ func imageTag() string {
 	return imageRepo + ":" + version
 }
 
+// defaultDataVolume is the named docker volume the reader mounts read-only
+// to tail the collector's NDJSON. Must match the collector's volume name.
+const defaultDataVolume = "hep3-data"
+
 // hep3Spec is the parsed HCL block for `hep3 "scope" "name" { ... }` —
-// the READER (API). The collector is a plain `deployment` the operator
-// applies separately (public clowk-hep3 image); only the reader needs a
-// kind, because only it has a locally-built image + a PAT-proxy route.
+// the READER. The collector is a plain `deployment` the operator applies
+// separately (public clowk-hep3 image); only the reader needs a kind,
+// because only it has a locally-built image + a PAT-proxy route.
 type hep3Spec struct {
-	Image     string
-	APIPort   int
-	Resources map[string]any
-	Env       map[string]string
+	Image      string
+	APIPort    int
+	Store      string // "ndjson" (default) or "pg"
+	DataVolume string // shared volume name (ndjson store)
+	Resources  map[string]any
+	Env        map[string]string
 }
 
 // cmdExpand reads the expand request and emits the reader API deployment
@@ -68,6 +74,11 @@ func cmdExpand() error {
 func buildExpand(scope, name string, spec hep3Spec) expandedPayload {
 	env := map[string]any{
 		"HEP3_API_ADDR": fmt.Sprintf("0.0.0.0:%d", spec.APIPort),
+		"HEP_STORE":     spec.Store,
+	}
+
+	if spec.Store == "ndjson" {
+		env["HEP_DATA_DIR"] = "/data"
 	}
 
 	// Operator env passthrough wins.
@@ -82,11 +93,17 @@ func buildExpand(scope, name string, spec hep3Spec) expandedPayload {
 		// controller's PAT proxy (HP0) reaches it by container IP on the
 		// port carried in HEP3_API_ADDR.
 		"env": env,
-		// DATABASE_URL (and any secrets) come from the resource's own
-		// config bucket — `vd config <scope>/<name> set DATABASE_URL=...`
-		// — inherited via env_from. No secret in the HCL.
+		// On the pg path, DATABASE_URL comes from the resource's own config
+		// bucket via env_from (no secret in HCL). Harmless on the ndjson
+		// path; lets a later switch to pg work with just the bucket set.
 		"env_from":     []any{bucketRef(scope, name)},
 		"health_check": fmt.Sprintf("wget -q -O- http://127.0.0.1:%d/health || exit 1", spec.APIPort),
+	}
+
+	if spec.Store == "ndjson" {
+		// Mount the collector's shared NDJSON volume read-only. Same host,
+		// same uid (10001) as clowk-hep3 — see Dockerfile.runtime.
+		depSpec["volumes"] = []any{spec.DataVolume + ":/data:ro"}
 	}
 
 	if len(spec.Resources) > 0 {
@@ -132,9 +149,19 @@ func parseSpec(rawSpec []byte) (hep3Spec, error) {
 	}
 
 	s := hep3Spec{
-		Image:   asString(m, "image", imageTag()),
-		APIPort: asInt(m, "api_port", defaultAPIPort),
-		Env:     asStringMap(m, "env"),
+		Image:      asString(m, "image", imageTag()),
+		APIPort:    asInt(m, "api_port", defaultAPIPort),
+		Store:      strings.ToLower(strings.TrimSpace(asString(m, "store", "ndjson"))),
+		DataVolume: asString(m, "data_volume", defaultDataVolume),
+		Env:        asStringMap(m, "env"),
+	}
+
+	if s.Store == "" {
+		s.Store = "ndjson"
+	}
+
+	if s.Store != "ndjson" && s.Store != "pg" {
+		return hep3Spec{}, fmt.Errorf("invalid store %q (want ndjson or pg)", s.Store)
 	}
 
 	if res, ok := m["resources"].(map[string]any); ok {
