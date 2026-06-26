@@ -7,6 +7,8 @@ be `v0.1.0` (the tag must match `version:` in `plugin.yml`).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-26
+
 ### Changed
 
 - **Default read backend is now NDJSON** (`HEP_STORE=ndjson`). The reader
