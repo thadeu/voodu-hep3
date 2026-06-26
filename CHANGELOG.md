@@ -19,14 +19,19 @@ be `v0.1.0` (the tag must match `version:` in `plugin.yml`).
   on the pg path). Reader and collector share a named volume → same host,
   same uid; `Dockerfile.runtime` pins uid 10001 to match clowk-hep3.
 
+### Removed
+
+- API versioning by vendor media type (the `application/vnd.clowk.hep+json`
+  Accept negotiation + `406`). Dead weight now that ndjson is the default
+  read path and `/export` is an unversioned NDJSON tail; the pg `/calls`
+  API just returns JSON.
+
 ### Added
 
 - `hep3` resource kind (alias `hep`): `expand` emits a `deployment`
   running the read-only REST API over the Postgres clowk-hep3 writes to.
-- Read REST API (`serve`): `/calls`, `/calls/{id}` (ladder), `/stats`
-  (with the `active` in-conversation gauge), `/health` — versioned by
-  vendor media type (`Accept: application/vnd.clowk.hep+json;version=1`),
-  not by URL path; unsupported version → 406.
+- Read REST API (`serve`, pg path): `/calls`, `/calls/{id}` (ladder),
+  `/stats` (with the `active` in-conversation gauge), `/health` — JSON.
 - Local-image deployment: the install hook builds `voodu-hep3-api:<version>`
   from the plugin binary + `Dockerfile.runtime` (no public registry, no
   build-mode); `expand` references that local tag, which the controller

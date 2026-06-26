@@ -5,8 +5,7 @@ description: >
   Voodu plugin for the SIP-capture READER. The kind `hep3 "scope" "name"`
   expands to a deployment that serves what clowk-hep3 captured: by default
   it tails the shared NDJSON volume (GET /export?since=, pulled by the
-  webui into SQLite); with store="pg" it serves a versioned REST API over
-  Postgres. Built from a LOCAL image (the plugin binary + a runtime
+  webui into SQLite); with store="pg" it serves a REST API over Postgres. Built from a LOCAL image (the plugin binary + a runtime
   Dockerfile), no public registry. The collector is a plain `deployment`
   running the public ghcr.io/thadeu/clowk-hep3 image (see clowk-hep3's
   hep3-server.voodu). `vd hep:<cmd>` works alongside `vd hep3:<cmd>`.

@@ -24,8 +24,7 @@ selects what it serves:
   ndjson (default)  GET /export?since=<cursor>  — NDJSON tail of the shared
                     volume; the webui poller pulls it into its SQLite.
   pg                REST query API over the shared Postgres (/calls,
-                    /calls/{id}, /stats), versioned by media type:
-                    Accept: application/vnd.clowk.hep+json;version=1
+                    /calls/{id}, /stats), JSON responses.
 
 Config via env:
 

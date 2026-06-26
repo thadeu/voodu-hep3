@@ -44,7 +44,4 @@ Commands:
                                                 the local image)
 
   vd hep:<cmd> works too (alias).
-
-The reader API is versioned by media type:
-  Accept: application/vnd.clowk.hep+json;version=1
 `

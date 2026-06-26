@@ -7,7 +7,7 @@ Voodu plugin for the **SIP capture reader** — it serves the SIP data the
 - **`ndjson`** (default) — tails the collector's shared NDJSON volume and
   serves `GET /export?since=<cursor>`, which the webui poller pulls into
   its own SQLite. No database.
-- **`pg`** — a versioned REST query API over the shared Postgres.
+- **`pg`** — a REST query API over the shared Postgres.
 
 | Piece | What | How it's deployed |
 | --- | --- | --- |
@@ -88,14 +88,9 @@ The webui poller loops `/export` with the returned cursor, dedups by line,
 and ingests into its local SQLite — where the calls/ladder/stats queries
 actually run.
 
-### `pg` — REST query API (versioned by media type)
+### `pg` — REST query API
 
-When `store = "pg"`, routes are versioned via the `Accept` header — paths
-stay clean and the shape can evolve to v2 without new paths.
-
-```
-Accept: application/vnd.clowk.hep+json;version=1
-```
+When `store = "pg"`, the reader serves JSON over the shared Postgres.
 
 | Route | Description |
 | --- | --- |
@@ -103,9 +98,6 @@ Accept: application/vnd.clowk.hep+json;version=1
 | `GET /calls/{id}` | one call's messages, oldest-first (ladder diagram) |
 | `GET /stats` | method/response counters + `active` (in-conversation) gauge, `interval` buckets |
 | `GET /health` | liveness |
-
-An explicit unsupported version → `406 Not Acceptable`; a generic Accept
-(`*/*`, `application/json`, none) → the current version.
 
 ## Development
 
