@@ -14,9 +14,14 @@ Voodu plugin for the **SIP capture reader** — it serves the SIP data the
 | **collector** | `clowk-hep3` — receives HEP3, writes SIP | a plain `deployment` with the **public** `ghcr.io/thadeu/clowk-hep3` image (see clowk-hep3's `hep3-server.voodu`) |
 | **reader** | this plugin — what the webui consumes | the `hep3` kind → a `deployment` running a **local** image (this binary + `Dockerfile.runtime`, built by the install hook — no public registry) |
 
-On the **ndjson** path the two share a named docker volume, so they run on
-the **same host as the same uid** (10001). On the **pg** path they only
-share `DATABASE_URL` and can run on different servers.
+> **Shared volume (ndjson) — required.** Collector and reader share one
+> named docker volume (default `hep3-data`), so they must run on the
+> **same host** as the **same uid (10001)** — the NDJSON files are `0600`.
+> The reader mounts it read-only; `data_volume` must match the collector's
+> volume name. Full requirements:
+> [clowk-hep3 docs/transport.md](https://github.com/thadeu/clowk-hep3/blob/main/docs/transport.md#shared-volume-ndjson--required).
+> On the **pg** path there's no shared volume — only `DATABASE_URL`, and
+> the two may run on different servers.
 
 The reader is internal-only; the webui reaches it through the controller's
 authenticated **PAT proxy** at `/api/pat/v1/hep3/<scope>/<name>`.
