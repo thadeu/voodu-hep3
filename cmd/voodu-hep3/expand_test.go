@@ -5,16 +5,21 @@ import (
 	"testing"
 )
 
-// expandFromJSON runs parse→build from a raw HCL-block JSON body.
+// expandFromJSON runs decode→build from a raw HCL-block JSON body.
 func expandFromJSON(t *testing.T, scope, name, specJSON string) expandedPayload {
 	t.Helper()
 
-	spec, err := parseSpec([]byte(specJSON))
+	spec, err := decodeSpecMap([]byte(specJSON))
 	if err != nil {
-		t.Fatalf("parseSpec: %v", err)
+		t.Fatalf("decodeSpecMap: %v", err)
 	}
 
-	return buildExpand(scope, name, spec)
+	p, err := buildExpand(scope, name, spec)
+	if err != nil {
+		t.Fatalf("buildExpand: %v", err)
+	}
+
+	return p
 }
 
 // dep returns the single deployment manifest from an expand payload.
@@ -61,29 +66,27 @@ func TestExpand_Defaults(t *testing.T) {
 		t.Errorf("replicas = %v, want 1", m.Spec["replicas"])
 	}
 
-	// The reader is internal-only: NO published ports.
-	if _, hasPorts := m.Spec["ports"]; hasPorts {
-		t.Errorf("reader must not publish ports (internal only): %v", m.Spec["ports"])
+	// No ports / no volumes are added by the plugin — those are the
+	// operator's to set (passthrough).
+	if _, has := m.Spec["ports"]; has {
+		t.Errorf("plugin must not add ports: %v", m.Spec["ports"])
+	}
+
+	if _, has := m.Spec["volumes"]; has {
+		t.Errorf("plugin must not add volumes (operator wires them): %v", m.Spec["volumes"])
 	}
 
 	env := envMap(t, m)
-	if env["HEP3_API_ADDR"] != "0.0.0.0:8080" {
-		t.Errorf("HEP3_API_ADDR = %v, want 0.0.0.0:8080", env["HEP3_API_ADDR"])
+	if env["HEP3_API_ADDR"] != defaultAPIAddr {
+		t.Errorf("HEP3_API_ADDR = %v, want %s", env["HEP3_API_ADDR"], defaultAPIAddr)
 	}
 
-	// Default store is ndjson: HEP_STORE + HEP_DATA_DIR + a read-only mount
-	// of the collector's shared volume.
 	if env["HEP_STORE"] != "ndjson" {
-		t.Errorf("HEP_STORE = %v, want ndjson", env["HEP_STORE"])
+		t.Errorf("HEP_STORE = %v, want ndjson (default)", env["HEP_STORE"])
 	}
 
 	if env["HEP_DATA_DIR"] != "/data" {
 		t.Errorf("HEP_DATA_DIR = %v, want /data", env["HEP_DATA_DIR"])
-	}
-
-	vols, ok := m.Spec["volumes"].([]any)
-	if !ok || len(vols) != 1 || vols[0] != "hep3-data:/data:ro" {
-		t.Errorf("volumes = %v, want [hep3-data:/data:ro]", m.Spec["volumes"])
 	}
 
 	ef, ok := m.Spec["env_from"].([]any)
@@ -92,7 +95,54 @@ func TestExpand_Defaults(t *testing.T) {
 	}
 }
 
-// store=pg: no shared volume, HEP_STORE=pg, DATABASE_URL via env_from.
+// Standard deployment fields pass through untouched; the plugin overlays
+// its env without clobbering the operator's.
+func TestExpand_Passthrough(t *testing.T) {
+	spec := `{
+		"store": "ndjson",
+		"volumes": ["hep3-data:/data:ro"],
+		"ports": ["0.0.0.0:9999:8080"],
+		"resources": {"limits": {"cpu": "0.5", "memory": "128Mi"}},
+		"env": {"FOO": "bar"}
+	}`
+
+	m := dep(t, expandFromJSON(t, "voip", "api", spec))
+
+	vols, ok := m.Spec["volumes"].([]any)
+	if !ok || len(vols) != 1 || vols[0] != "hep3-data:/data:ro" {
+		t.Errorf("volumes passthrough lost: %v", m.Spec["volumes"])
+	}
+
+	ports, ok := m.Spec["ports"].([]any)
+	if !ok || len(ports) != 1 || ports[0] != "0.0.0.0:9999:8080" {
+		t.Errorf("ports passthrough lost: %v", m.Spec["ports"])
+	}
+
+	res, ok := m.Spec["resources"].(map[string]any)
+	if !ok {
+		t.Fatalf("resources passthrough lost: %v", m.Spec["resources"])
+	}
+
+	if limits, _ := res["limits"].(map[string]any); limits["memory"] != "128Mi" {
+		t.Errorf("resources.limits.memory = %v, want 128Mi", res["limits"])
+	}
+
+	env := envMap(t, m)
+	if env["FOO"] != "bar" {
+		t.Errorf("operator env FOO lost: %v", env["FOO"])
+	}
+
+	if env["HEP_STORE"] != "ndjson" {
+		t.Errorf("HEP_STORE = %v, want ndjson", env["HEP_STORE"])
+	}
+
+	// `store` is sugar, not a deployment field — it must be stripped.
+	if _, has := m.Spec["store"]; has {
+		t.Errorf("store must not leak into the deployment spec")
+	}
+}
+
+// store=pg: HEP_STORE=pg, no HEP_DATA_DIR; DATABASE_URL via env_from.
 func TestExpand_PGStore(t *testing.T) {
 	m := dep(t, expandFromJSON(t, "voip", "api", `{"store":"pg"}`))
 
@@ -104,64 +154,35 @@ func TestExpand_PGStore(t *testing.T) {
 	if _, has := env["HEP_DATA_DIR"]; has {
 		t.Errorf("pg store must not set HEP_DATA_DIR: %v", env["HEP_DATA_DIR"])
 	}
-
-	if _, has := m.Spec["volumes"]; has {
-		t.Errorf("pg store must not mount a volume: %v", m.Spec["volumes"])
-	}
 }
 
-// data_volume override flows into the mount.
-func TestExpand_DataVolumeOverride(t *testing.T) {
-	m := dep(t, expandFromJSON(t, "voip", "api", `{"data_volume":"capture-vol"}`))
-
-	vols, ok := m.Spec["volumes"].([]any)
-	if !ok || len(vols) != 1 || vols[0] != "capture-vol:/data:ro" {
-		t.Errorf("volumes = %v, want [capture-vol:/data:ro]", m.Spec["volumes"])
-	}
-}
-
-// An unknown store is rejected at parse time.
-func TestExpand_InvalidStore(t *testing.T) {
-	if _, err := parseSpec([]byte(`{"store":"redis"}`)); err == nil {
-		t.Fatal("store=redis should error")
-	}
-}
-
-func TestExpand_Overrides(t *testing.T) {
-	spec := `{"image":"voodu-hep3-api:v9","api_port":9000,"resources":{"limits":{"cpu":"0.5","memory":"128Mi"}}}`
-
-	m := dep(t, expandFromJSON(t, "voip", "api", spec))
+// Image override passes through.
+func TestExpand_ImageOverride(t *testing.T) {
+	m := dep(t, expandFromJSON(t, "voip", "api", `{"image":"voodu-hep3-api:v9"}`))
 
 	if m.Spec["image"] != "voodu-hep3-api:v9" {
 		t.Errorf("image override lost: %v", m.Spec["image"])
 	}
+}
 
-	if envMap(t, m)["HEP3_API_ADDR"] != "0.0.0.0:9000" {
-		t.Errorf("api_port override = %v, want 0.0.0.0:9000", envMap(t, m)["HEP3_API_ADDR"])
-	}
+// Operator env wins over the plugin defaults.
+func TestExpand_EnvPassthroughWins(t *testing.T) {
+	m := dep(t, expandFromJSON(t, "voip", "api", `{"env":{"HEP3_API_ADDR":"0.0.0.0:7000"}}`))
 
-	res, ok := m.Spec["resources"].(map[string]any)
-	if !ok {
-		t.Fatalf("resources not passed through: %v", m.Spec["resources"])
-	}
-
-	limits, _ := res["limits"].(map[string]any)
-	if limits["memory"] != "128Mi" {
-		t.Errorf("resources.limits.memory = %v, want 128Mi", limits["memory"])
+	if env := envMap(t, m); env["HEP3_API_ADDR"] != "0.0.0.0:7000" {
+		t.Errorf("operator env must win: HEP3_API_ADDR = %v, want 0.0.0.0:7000", env["HEP3_API_ADDR"])
 	}
 }
 
-func TestExpand_EnvPassthroughWins(t *testing.T) {
-	m := dep(t, expandFromJSON(t, "voip", "api", `{"env":{"HEP3_API_ADDR":"0.0.0.0:7000","FOO":"bar"}}`))
-
-	env := envMap(t, m)
-
-	if env["FOO"] != "bar" {
-		t.Errorf("passthrough FOO = %v, want bar", env["FOO"])
+// An unknown store is rejected.
+func TestExpand_InvalidStore(t *testing.T) {
+	spec, err := decodeSpecMap([]byte(`{"store":"redis"}`))
+	if err != nil {
+		t.Fatalf("decodeSpecMap: %v", err)
 	}
 
-	if env["HEP3_API_ADDR"] != "0.0.0.0:7000" {
-		t.Errorf("operator env must win: HEP3_API_ADDR = %v, want 0.0.0.0:7000", env["HEP3_API_ADDR"])
+	if _, err := buildExpand("voip", "api", spec); err == nil {
+		t.Fatal("store=redis should error")
 	}
 }
 
@@ -185,7 +206,7 @@ func TestExpand_EmitsEndpointAction(t *testing.T) {
 }
 
 func TestDecodeExpandRequest(t *testing.T) {
-	raw := `{"kind":"hep3","scope":"voip","name":"api","spec":{"api_port":8080},"config":{}}`
+	raw := `{"kind":"hep3","scope":"voip","name":"api","spec":{"store":"ndjson"},"config":{}}`
 
 	req, err := decodeExpandRequest([]byte(raw))
 	if err != nil {
@@ -201,7 +222,7 @@ func TestDecodeExpandRequest(t *testing.T) {
 		t.Fatalf("spec not raw-preserved: %v", err)
 	}
 
-	if spec["api_port"].(float64) != 8080 {
-		t.Errorf("spec.api_port = %v, want 8080", spec["api_port"])
+	if spec["store"] != "ndjson" {
+		t.Errorf("spec.store = %v, want ndjson", spec["store"])
 	}
 }

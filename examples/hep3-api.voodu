@@ -6,19 +6,25 @@
 # The image is built LOCALLY (the plugin binary + Dockerfile.runtime, by
 # the install hook) — no public image.
 #
-# Default backend is `ndjson`: the reader mounts the collector's shared
-# NDJSON volume read-only and serves GET /export?since=<cursor>, which the
-# webui poller pulls into its SQLite. Reader and collector must run on the
-# SAME host and share the SAME named volume (default "hep3-data").
+# The block IS a deployment spec: every standard field (volumes, env,
+# ports, resources, …) passes through. The plugin only overlays its own
+# bits (local image, HEP_STORE/HEP_DATA_DIR, health check, PAT route).
+# `store` is the only plugin-specific field.
+#
+# Default backend is `ndjson`: serves GET /export?since=<cursor>, which the
+# webui poller pulls into its SQLite. Wire the SAME named volume the
+# collector writes to (read-only) — reader and collector on the SAME host.
 #
 #   vd plugins:install hep3
 #   vd apply -f hep3-api.voodu
 #   # then manage it like any deployment: vd get / logs / restart / stop / delete
 
 hep3 "fsw" "hep3-api" {
-  # store       = "ndjson"      # default; "pg" to read the Postgres backend instead
-  # data_volume = "hep3-data"   # must match the collector's named volume (ndjson store)
-  # api_port    = 8080          # internal, voodu0 only
+  store = "ndjson" # the only plugin-specific field; "pg" to read Postgres instead
+
+  # Standard deployment field — wire the collector's shared volume (mounted
+  # at /data, which is HEP_DATA_DIR's default) read-only:
+  volumes = ["hep3-data:/data:ro"]
 
   resources {
     limits {

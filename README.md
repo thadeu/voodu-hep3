@@ -15,10 +15,10 @@ Voodu plugin for the **SIP capture reader** — it serves the SIP data the
 | **reader** | this plugin — what the webui consumes | the `hep3` kind → a `deployment` running a **local** image (this binary + `Dockerfile.runtime`, built by the install hook — no public registry) |
 
 > **Shared volume (ndjson) — required.** Collector and reader share one
-> named docker volume (default `hep3-data`), so they must run on the
-> **same host** as the **same uid (10001)** — the NDJSON files are `0600`.
-> The reader mounts it read-only; `data_volume` must match the collector's
-> volume name. Full requirements:
+> named docker volume (e.g. `hep3-data`), so they must run on the **same
+> host** as the **same uid (10001)** — the NDJSON files are `0600`. You wire
+> it on the reader with a standard `volumes = ["hep3-data:/data:ro"]` (the
+> block is a deployment spec — see below). Full requirements:
 > [clowk-hep3 docs/transport.md](https://github.com/thadeu/clowk-hep3/blob/main/docs/transport.md#shared-volume-ndjson--required).
 > On the **pg** path there's no shared volume — only `DATABASE_URL`, and
 > the two may run on different servers.
@@ -40,14 +40,15 @@ binary. No public image is ever pushed.
 
 ## Deploy the reader
 
-Default (ndjson) — shares the collector's volume, no DATABASE_URL:
+The `hep3` block **is a deployment spec**: standard fields (`volumes`,
+`env`, `ports`, `resources`, …) pass through; `store` is the only
+plugin-specific field. Default (ndjson) — wire the collector's volume:
 
 ```hcl
 # hep3-api.voodu
 hep3 "voip" "api" {
-  # store       = "ndjson"     # default; "pg" to read Postgres instead
-  # data_volume = "hep3-data"  # must match the collector's named volume
-  # api_port    = 8080         # internal (voodu0 only)
+  store   = "ndjson"                  # only plugin field; "pg" reads Postgres
+  volumes = ["hep3-data:/data:ro"]    # standard field — the shared volume
   resources {
     limits { cpu = "0.5", memory = "128Mi" }
   }
@@ -58,11 +59,12 @@ hep3 "voip" "api" {
 vd apply -f hep3-api.voodu
 ```
 
-`expand` emits a `deployment` running `voodu-hep3-api:<version>` (local
-image). On the ndjson path it mounts `<data_volume>:/data:ro` and sets
-`HEP_STORE=ndjson` + `HEP_DATA_DIR=/data`; on the pg path it sets
-`HEP_STORE=pg` and inherits `DATABASE_URL` from the resource's config
-bucket (`vd config voip/api set DATABASE_URL=...`). Either way it writes
+`expand` keeps the operator's fields and overlays only its own: the local
+image `voodu-hep3-api:<version>`, `HEP_STORE` (from `store`),
+`HEP_DATA_DIR=/data`, `HEP3_API_ADDR`, a `/health` check, and `env_from`
+(the resource's bucket) — none of which clobber what you set. On the **pg**
+path drop the `volumes` and put `DATABASE_URL` in the bucket
+(`vd config voip/api set DATABASE_URL=...`). Either way it writes
 `HEP3_ENDPOINT` into the bucket for consumers.
 
 ## Manage the reader

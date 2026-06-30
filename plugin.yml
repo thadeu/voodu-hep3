@@ -1,6 +1,6 @@
 name: hep3
 aliases: [hep]
-version: 0.4.0
+version: 0.5.0
 description: >
   Voodu plugin for the SIP-capture READER. The kind `hep3 "scope" "name"`
   expands to a deployment that serves what clowk-hep3 captured: by default

@@ -7,6 +7,25 @@ be `v0.1.0` (the tag must match `version:` in `plugin.yml`).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-30
+
+### Changed
+
+- **The `hep3` block is now a deployment spec (passthrough).** Standard
+  deployment fields — `volumes`, `env`, `ports`, `resources`, `networks`,
+  … — pass through to the emitted deployment untouched; the plugin only
+  overlays its own concerns (local image, `HEP_STORE`/`HEP_DATA_DIR`,
+  `HEP3_API_ADDR`, health check, `env_from`) without clobbering them.
+  `store` is the only plugin-specific field.
+
+### Removed
+
+- The `data_volume` and `api_port` fields. Wire the shared volume with a
+  standard `volumes = ["hep3-data:/data:ro"]` (matches the collector's
+  `volumes`), and set the listen port via `env` / `HEP3_API_ADDR` if
+  needed. **Migration:** replace `data_volume = "X"` with
+  `volumes = ["X:/data:ro"]`.
+
 ## [0.4.0] - 2026-06-30
 
 ### Removed

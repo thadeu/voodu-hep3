@@ -8,15 +8,15 @@ import (
 	"strings"
 )
 
-// Defaults for the reader API deployment.
-const (
-	defaultAPIPort = 8080
-	// imageRepo is the LOCAL image tag the install hook builds (binary +
-	// runtime Dockerfile). Never a public registry — the `expand` output
-	// references this local tag, and the controller runs it without a
-	// pull because the install hook built it on the node.
-	imageRepo = "voodu-hep3-api"
-)
+// imageRepo is the LOCAL image tag the install hook builds (binary +
+// runtime Dockerfile). Never a public registry — the `expand` output
+// references this local tag, and the controller runs it without a pull
+// because the install hook built it on the node.
+const imageRepo = "voodu-hep3-api"
+
+// defaultAPIAddr is the reader's internal listen address (voodu0 only; the
+// PAT proxy reaches it). Operators override via env HEP3_API_ADDR.
+const defaultAPIAddr = "0.0.0.0:8080"
 
 // imageTag is the local image reference: voodu-hep3-api:<version>. The
 // install hook builds exactly this tag from the same plugin version, so
@@ -25,25 +25,8 @@ func imageTag() string {
 	return imageRepo + ":" + version
 }
 
-// defaultDataVolume is the named docker volume the reader mounts read-only
-// to tail the collector's NDJSON. Must match the collector's volume name.
-const defaultDataVolume = "hep3-data"
-
-// hep3Spec is the parsed HCL block for `hep3 "scope" "name" { ... }` —
-// the READER. The collector is a plain `deployment` the operator applies
-// separately (public clowk-hep3 image); only the reader needs a kind,
-// because only it has a locally-built image + a PAT-proxy route.
-type hep3Spec struct {
-	Image      string
-	APIPort    int
-	Store      string // "ndjson" (default) or "pg"
-	DataVolume string // shared volume name (ndjson store)
-	Resources  map[string]any
-	Env        map[string]string
-}
-
-// cmdExpand reads the expand request and emits the reader API deployment
-// (local image) plus an HEP3_ENDPOINT config_set for consumers.
+// cmdExpand reads the expand request and emits the reader deployment plus
+// an HEP3_ENDPOINT config_set for consumers.
 func cmdExpand() error {
 	raw, err := io.ReadAll(os.Stdin)
 	if err != nil {
@@ -59,58 +42,89 @@ func cmdExpand() error {
 		return fmt.Errorf("expand request missing required field 'name'")
 	}
 
-	spec, err := parseSpec(req.Spec)
+	spec, err := decodeSpecMap(req.Spec)
 	if err != nil {
 		return err
 	}
 
-	emitOK(buildExpand(req.Scope, req.Name, spec))
+	payload, err := buildExpand(req.Scope, req.Name, spec)
+	if err != nil {
+		return err
+	}
+
+	emitOK(payload)
 
 	return nil
 }
 
-// buildExpand assembles the reader deployment + actions. Split out for
-// unit-testability without stdin.
-func buildExpand(scope, name string, spec hep3Spec) expandedPayload {
-	env := map[string]any{
-		"HEP3_API_ADDR": fmt.Sprintf("0.0.0.0:%d", spec.APIPort),
-		"HEP_STORE":     spec.Store,
+// buildExpand turns the operator's `hep3` block into the reader deployment.
+//
+// The block IS a deployment spec: every standard field (volumes, env,
+// ports, resources, networks, …) passes through unchanged. The plugin only
+// overlays its own concerns and never clobbers what the operator set:
+//
+//   - image      → the local tag (operator may override)
+//   - replicas   → 1 (operator may override)
+//   - env        → HEP_STORE (from `store`), HEP_DATA_DIR, HEP3_API_ADDR
+//     merged UNDER the operator's env (operator wins)
+//   - env_from   → the resource's own bucket (operator may override)
+//   - health_check → wget /health (operator may override)
+//
+// `store` is the only plugin-specific field (sugar for HEP_STORE); it is
+// stripped from the deployment spec. On the ndjson path the operator wires
+// the shared volume with a standard `volumes = ["hep3-data:/data:ro"]`.
+func buildExpand(scope, name string, spec map[string]any) (expandedPayload, error) {
+	// Passthrough: start from a copy of the operator's spec.
+	dep := make(map[string]any, len(spec)+4)
+	for k, v := range spec {
+		dep[k] = v
 	}
 
-	if spec.Store == "ndjson" {
+	// `store` is plugin sugar, not a deployment field.
+	store := strings.ToLower(strings.TrimSpace(asString(dep, "store", "ndjson")))
+	delete(dep, "store")
+
+	if store != "ndjson" && store != "pg" {
+		return expandedPayload{}, fmt.Errorf("invalid store %q (want ndjson or pg)", store)
+	}
+
+	// Defaults — operator passthrough wins where a field is already set.
+	if _, ok := dep["image"]; !ok {
+		dep["image"] = imageTag()
+	}
+
+	if _, ok := dep["replicas"]; !ok {
+		dep["replicas"] = 1
+	}
+
+	// Env: plugin defaults UNDER the operator's env (operator wins).
+	env := map[string]any{
+		"HEP3_API_ADDR": defaultAPIAddr,
+		"HEP_STORE":     store,
+	}
+
+	if store == "ndjson" {
 		env["HEP_DATA_DIR"] = "/data"
 	}
 
-	// Operator env passthrough wins.
-	for k, v := range spec.Env {
+	for k, v := range asStringMap(dep, "env") {
 		env[k] = v
 	}
 
-	depSpec := map[string]any{
-		"image":    spec.Image,
-		"replicas": 1,
-		// No published ports: the API stays internal on voodu0. The
-		// controller's PAT proxy (HP0) reaches it by container IP on the
-		// port carried in HEP3_API_ADDR.
-		"env": env,
-		// On the pg path, DATABASE_URL comes from the resource's own config
-		// bucket via env_from (no secret in HCL). Harmless on the ndjson
-		// path; lets a later switch to pg work with just the bucket set.
-		"env_from":     []any{bucketRef(scope, name)},
-		"health_check": fmt.Sprintf("wget -q -O- http://127.0.0.1:%d/health || exit 1", spec.APIPort),
+	dep["env"] = env
+
+	if _, ok := dep["env_from"]; !ok {
+		// On the pg path, DATABASE_URL comes from the resource's own bucket
+		// via env_from (no secret in HCL). Harmless on the ndjson path.
+		dep["env_from"] = []any{bucketRef(scope, name)}
 	}
 
-	if spec.Store == "ndjson" {
-		// Mount the collector's shared NDJSON volume read-only. Same host,
-		// same uid (10001) as clowk-hep3 — see Dockerfile.runtime.
-		depSpec["volumes"] = []any{spec.DataVolume + ":/data:ro"}
+	if _, ok := dep["health_check"]; !ok {
+		addr, _ := env["HEP3_API_ADDR"].(string)
+		dep["health_check"] = fmt.Sprintf("wget -q -O- http://127.0.0.1:%s/health || exit 1", portOf(addr, "8080"))
 	}
 
-	if len(spec.Resources) > 0 {
-		depSpec["resources"] = spec.Resources
-	}
-
-	dep := manifest{Kind: "deployment", Scope: scope, Name: name, Spec: depSpec}
+	depManifest := manifest{Kind: "deployment", Scope: scope, Name: name, Spec: dep}
 
 	// Publish the PAT-plane read path into the resource's bucket so the
 	// webui/consumers inherit it via env_from. skip_restart: metadata for
@@ -123,7 +137,7 @@ func buildExpand(scope, name string, spec hep3Spec) expandedPayload {
 		SkipRestart: true,
 	}
 
-	return expandedPayload{Manifests: []manifest{dep}, Actions: []dispatchAction{action}}
+	return expandedPayload{Manifests: []manifest{depManifest}, Actions: []dispatchAction{action}}, nil
 }
 
 func bucketRef(scope, name string) string {
@@ -140,55 +154,18 @@ func endpointPath(scope, name string) string {
 	return fmt.Sprintf("/api/pat/v1/hep3/%s/%s", scope, name)
 }
 
-// parseSpec coerces the HCL block (numbers arrive as float64) into a
-// typed hep3Spec, filling defaults.
-func parseSpec(rawSpec []byte) (hep3Spec, error) {
-	m, err := decodeSpecMap(rawSpec)
-	if err != nil {
-		return hep3Spec{}, err
-	}
-
-	s := hep3Spec{
-		Image:      asString(m, "image", imageTag()),
-		APIPort:    asInt(m, "api_port", defaultAPIPort),
-		Store:      strings.ToLower(strings.TrimSpace(asString(m, "store", "ndjson"))),
-		DataVolume: asString(m, "data_volume", defaultDataVolume),
-		Env:        asStringMap(m, "env"),
-	}
-
-	if s.Store == "" {
-		s.Store = "ndjson"
-	}
-
-	if s.Store != "ndjson" && s.Store != "pg" {
-		return hep3Spec{}, fmt.Errorf("invalid store %q (want ndjson or pg)", s.Store)
-	}
-
-	if res, ok := m["resources"].(map[string]any); ok {
-		s.Resources = res
-	}
-
-	return s, nil
-}
-
-func asString(m map[string]any, key, def string) string {
-	if v, ok := m[key].(string); ok && v != "" {
-		return v
+// portOf returns the port after the last ':' in addr, or def.
+func portOf(addr, def string) string {
+	if i := strings.LastIndex(addr, ":"); i >= 0 && i+1 < len(addr) {
+		return addr[i+1:]
 	}
 
 	return def
 }
 
-func asInt(m map[string]any, key string, def int) int {
-	switch v := m[key].(type) {
-	case float64:
-		return int(v)
-	case int:
+func asString(m map[string]any, key, def string) string {
+	if v, ok := m[key].(string); ok && v != "" {
 		return v
-	case string:
-		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
-			return n
-		}
 	}
 
 	return def
