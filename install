@@ -60,10 +60,15 @@ install_voodu_hep3() {
   local tmp
   tmp="$(mktemp)"
 
-  if ! curl -fsSL "$url" -o "$tmp"; then
+  # Fail fast + loud on blocked/slow egress instead of hanging until the
+  # controller kills the hook mid-download. GitHub redirects release assets
+  # to release-assets.githubusercontent.com — that host must be reachable.
+  if ! curl -fsSL --connect-timeout 10 --max-time 300 \
+       --retry 3 --retry-delay 2 --retry-connrefused "$url" -o "$tmp"; then
     rm -f "$tmp"
     log "failed to download voodu-hep3 binary from $url" >&2
-    log "make sure release v$version was published with the linux_${a} asset" >&2
+    log "the host must reach github.com AND release-assets.githubusercontent.com" >&2
+    log "(air-gapped? pre-place the binary at $PLUGIN_BIN and re-run install)" >&2
     exit 1
   fi
 
