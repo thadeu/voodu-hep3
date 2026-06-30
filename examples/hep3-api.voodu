@@ -13,7 +13,7 @@
 #
 #   vd plugins:install hep3
 #   vd apply -f hep3-api.voodu
-#   vd hep3:api start|stop|restart fsw/hep3-api   # start/restart rebuild the local image
+#   # then manage it like any deployment: vd get / logs / restart / stop / delete
 
 hep3 "fsw" "hep3-api" {
   # store       = "ndjson"      # default; "pg" to read the Postgres backend instead

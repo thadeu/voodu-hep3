@@ -1,11 +1,13 @@
 // Command voodu-hep3 is the voodu plugin for the `hep3` resource kind —
-// the reader API over the SIP capture data clowk-hep3 writes to Postgres.
-// The controller invokes it as a single binary, dispatching on argv[1]:
+// the reader over the SIP capture data clowk-hep3 writes. The controller
+// invokes it as a single binary, dispatching on argv[1]:
 //
-//	expand  — (internal) emit the reader API deployment (local image) on apply
-//	api     — manage the reader pod: api start|stop|restart <scope/name>
-//	serve   — run the read-only REST API (the container the plugin deploys)
+//	expand  — (internal) emit the reader deployment (local image) on apply
+//	serve   — run the reader server (the container the plugin deploys)
 //	help    — operator overview
+//
+// The reader is a plain deployment once expanded, so its lifecycle
+// (start/stop/restart/logs/delete) is the generic `vd` — no plugin command.
 package main
 
 import (
@@ -19,7 +21,7 @@ var version = "dev"
 
 func main() {
 	if len(os.Args) < 2 {
-		emitErr("usage: voodu-hep3 <expand|api|serve|help|--version>")
+		emitErr("usage: voodu-hep3 <expand|serve|help|--version>")
 		os.Exit(1)
 	}
 
@@ -29,12 +31,6 @@ func main() {
 
 	case "expand":
 		if err := cmdExpand(); err != nil {
-			emitErr(err.Error())
-			os.Exit(1)
-		}
-
-	case "api":
-		if err := cmdAPI(); err != nil {
 			emitErr(err.Error())
 			os.Exit(1)
 		}
@@ -50,7 +46,7 @@ func main() {
 		printPluginOverview()
 
 	default:
-		emitErr(fmt.Sprintf("unknown subcommand %q (want expand|api|serve|help)", os.Args[1]))
+		emitErr(fmt.Sprintf("unknown subcommand %q (want expand|serve|help)", os.Args[1]))
 		os.Exit(1)
 	}
 }

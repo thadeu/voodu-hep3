@@ -106,3 +106,14 @@ func cmdServe() error {
 
 	return nil
 }
+
+// hasHelpFlag reports whether -h / --help appears in args.
+func hasHelpFlag(args []string) bool {
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			return true
+		}
+	}
+
+	return false
+}

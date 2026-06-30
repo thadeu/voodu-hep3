@@ -1,6 +1,6 @@
 name: hep3
 aliases: [hep]
-version: 0.3.1
+version: 0.4.0
 description: >
   Voodu plugin for the SIP-capture READER. The kind `hep3 "scope" "name"`
   expands to a deployment that serves what clowk-hep3 captured: by default
@@ -30,11 +30,6 @@ commands:
       (Internal.) Macro entrypoint invoked by the controller during
       apply. Emits the reader deployment (local image; shared NDJSON
       volume on the ndjson path) + an HEP3_ENDPOINT config_set.
-
-  - name: api
-    help: >
-      Manage the reader pod: vd hep3:api start|stop|restart <scope/name>.
-      start/restart build the local image; restart picks up a new binary.
 
   - name: serve
     help: >

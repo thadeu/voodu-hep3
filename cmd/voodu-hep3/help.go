@@ -37,11 +37,12 @@ pass DATABASE_URL to both):
                vd config voip/api set DATABASE_URL=postgres://...
                vd apply -f hep3-api.voodu
 
-Commands:
+Lifecycle:
 
-  vd hep3:api start|stop|restart <scope/name>   manage the reader pod
-                                                (start/restart rebuild
-                                                the local image)
+  The reader is a plain deployment once applied, so manage it with the
+  generic voodu commands — no plugin command:
 
-  vd hep:<cmd> works too (alias).
+    vd get                       vd logs <scope>/<name>
+    vd restart <scope>/<name>    vd stop|start <scope>/<name>
+    vd delete <scope>/<name>
 `

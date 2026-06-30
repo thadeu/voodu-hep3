@@ -65,13 +65,21 @@ image). On the ndjson path it mounts `<data_volume>:/data:ro` and sets
 bucket (`vd config voip/api set DATABASE_URL=...`). Either way it writes
 `HEP3_ENDPOINT` into the bucket for consumers.
 
-## Manage the reader pod
+## Manage the reader
+
+Once applied, the reader is a plain `deployment` the controller manages —
+use the generic `vd` commands, no plugin command:
 
 ```bash
-vd hep3:api start   voip/api   # build local image (if needed) + start
-vd hep3:api stop    voip/api
-vd hep3:api restart voip/api   # rebuild local image + restart (new binary)
+vd get                      # is the reader Running?
+vd logs voip/api            # reader logs
+vd restart voip/api         # bounce the pod
+vd stop|start voip/api
+vd delete voip/api
 ```
+
+The local image is (re)built by the install hook on `vd plugins:install` /
+`vd plugins:update`; a `vd apply` after an update rolls the new image.
 
 ## Read paths
 

@@ -7,6 +7,17 @@ be `v0.1.0` (the tag must match `version:` in `plugin.yml`).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-30
+
+### Removed
+
+- The `hep3:api start|stop|restart` command. The reader is a plain
+  `deployment` once expanded, so its lifecycle is the generic `vd`
+  (`get`/`logs`/`restart`/`stop`/`start`/`delete`); the local image is
+  built by the install hook. The command only duplicated that — and its
+  `docker build` broke under the controller's sandbox. Plugin commands are
+  now just `expand` / `serve` / `help`.
+
 ## [0.3.0] - 2026-06-26
 
 ### Changed
